@@ -1,0 +1,281 @@
+---
+title: "Final Project"
+author: "Ava Mizrahi & Jake Whiting"
+date: "2025-12-01"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Set Up 
+```{r}
+# reproducibility
+set.seed(123)
+
+# Load packages
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(car)
+library(broom)
+library(ggpubr)
+```
+
+
+
+Import datasets
+```{r}
+student_mat <- read.csv("student-mat.csv")
+student_por <- read.csv("student-por.csv")
+
+students <- bind_rows(student_mat %>% mutate(subject = "math"),
+                      student_por %>% mutate(subject = "portuguese"))
+```
+
+
+
+Cleaning
+```{r}
+# Change variable names
+students_clean <- students %>%
+  select(subject, sex, age, internet, activities, studytime, absences, failures, goout, Dalc, Walc, G3) %>%
+  rename(final_grade = G3) %>%
+  mutate(sex = factor(sex, levels = c("F", "M"), labels = c("Female", "Male")), Dalc = as.numeric(Dalc), Walc = as.numeric(Walc))
+
+head(students_clean)
+str(students_clean)
+summary(students_clean)
+```
+
+
+
+Exploratory Data Analysis
+```{r}
+# Histogram of final grades
+ggplot(students_clean, aes(x = final_grade)) +
+  geom_histogram(binwidth = 1, color = "white") +
+  labs(title = "Distribution of Final Grades", x = "Final Grade", y = "Count") +
+  theme_minimal()
+
+# Histogram of Workday Alcohol Consumption
+ggplot(students_clean, aes(x = Dalc)) +
+  geom_histogram(binwidth = 1, color = "white") +
+  labs(title = "Distribution of Workday Alc Consumption", x = "Dalc", y = "Count") +
+  theme_minimal()
+
+# Histogram of Weekend Alcohol Consumption
+ggplot(students_clean, aes(x = Walc)) +
+  geom_histogram(binwidth = 1, color = "white") +
+  labs(title = "Distribution of Weekend Alc Consumption", x = "Walc", y = "Count") +
+  theme_minimal()
+
+# Boxplot of final grades by workday alcohol consumption
+ggplot(students_clean, aes(x = factor(Dalc), y = final_grade, fill = factor(Dalc))) +
+  geom_boxplot() +
+  labs(title = "Final Grades by Workday Alcohol Consumption",
+       x = "Dalc (1–5)", y = "Final Grade") +
+  theme_minimal()
+
+# Boxplot of final grades by weekend alcohol consumption
+ggplot(students_clean, aes(x = factor(Walc), y = final_grade, fill = factor(Walc))) +
+  geom_boxplot() +
+  labs(title = "Final Grades by Weekend Alcohol Consumption",
+       x = "Walc (1–5)", y = "Final Grade") +
+  theme_minimal()
+
+# Boxplot of final grades by going out
+ggplot(students_clean, aes(x = factor(goout), y = final_grade, fill = factor(goout))) +
+  geom_boxplot() +
+  labs(title = "Final Grades by Go out",
+       x = "Go Out (1–5)", y = "Final Grade") +
+  theme_minimal()
+
+# Scatterplot final grades vs. study time
+ggplot(students_clean, aes(x = studytime, y = final_grade)) +
+  geom_jitter(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Final Grade vs Study Time",
+       x = "Study Time (1-4)", y = "Final Grade")
+
+# Boxplot of final grades by internet access
+ggplot(students_clean, aes(x = factor(internet), y = final_grade, fill = factor(internet))) +
+  geom_boxplot() +
+  labs(title = "Final Grades by Internet",
+       x = "Internet Access at Home", y = "Final Grade") +
+  theme_minimal()
+
+# Boxplot of final grades by activity
+ggplot(students_clean, aes(x = factor(activities), y = final_grade, fill = factor(activities))) +
+  geom_boxplot() +
+  labs(title = "Final Grades by Activity",
+       x = "Participation in Extracirriculars", y = "Final Grade") +
+  theme_minimal()
+
+# Scatterplot of final grades vs absences
+ggplot(students_clean, aes(x = absences, y = final_grade)) +
+  geom_jitter(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Final Grade vs Absences",
+       x = "Number of Absences", y = "Final Grade")
+
+# Scatterplot of final grades vs number of past failures
+ggplot(students_clean, aes(x = failures, y = final_grade)) +
+  geom_jitter(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Final Grade vs Failures",
+       x = "Number of Failures", y = "Final Grade")
+```
+
+
+Two Factor ANOVA
+```{r}
+anova_md <- lm(final_grade ~ sex * Dalc, data = students_clean)
+summary(anova_md)
+Anova(anova_md, type = 2)
+```
+
+Logistic Regression Model
+```{r}
+# Make the final grade into a binary pass/fail variable with a 12 threshold
+students_clean <- students_clean %>%
+  mutate(pass = ifelse(final_grade >= 12, 1, 0),pass = factor(pass, levels = c(0,1), labels = c("Fail","Pass")))
+
+table(students_clean$pass)
+
+logit_mod <- glm(pass ~ sex + internet + failures + absences + activities + goout + studytime + Dalc + Walc , data = students_clean, family = binomial)
+
+summary(logit_mod)
+```
+
+
+
+Odds Ratios
+```{r}
+# Odds ratios
+exp(coef(logit_mod))
+exp(confint(logit_mod))
+
+logit_mod$null.deviance
+logit_mod$deviance
+1 - (logit_mod$deviance / logit_mod$null.deviance)
+```
+
+
+
+Prediction & Accuracy of Logistic Regression Model
+```{r}
+students_clean$pred_prob <- predict(logit_mod, type = "response")
+students_clean$pred_class <- ifelse(students_clean$pred_prob > 0.6, "Pass", "Fail")
+
+table(Predicted = students_clean$pred_class, Actual = students_clean$pass)
+
+mean(students_clean$pred_class == students_clean$pass)
+```
+
+
+Fitted vs Observed
+```{r}
+ggplot(students_clean, aes(x = pass, y = pred_prob, fill = pass)) +
+  geom_boxplot(alpha = 0.8) +
+  labs(title = "Fitted Probabilities by Actual Outcome", x = "Actual Outcome", y = "Predicted Probability") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+
+Reduced Logistic Model for Comparison
+```{r}
+# Top 4 significant variables
+logit_reduced <- glm(pass ~ failures + absences + studytime + internet, data = students_clean, family = binomial)
+
+summary(logit_reduced)
+
+```
+
+```{r}
+# Compare AIC/BIC
+AIC(logit_mod, logit_reduced)
+BIC(logit_mod, logit_reduced)
+
+anova(logit_reduced, logit_mod, test = "Chisq")
+```
+
+
+Parameter Estimation
+```{r}
+coef_table <- tidy(logit_mod, conf.int = TRUE, exponentiate = TRUE)
+coef_table
+```
+
+
+Cook's Distance
+```{r}
+cooks <- cooks.distance(logit_mod)
+
+plot(cooks, type = "h", main = "cook's Distance for logistic regression", ylab = "cook's distance")
+```
+
+
+Logistic Model Removing Influential Points
+```{r}
+influential_points <- which(cooks > (4 / nrow(students_clean)))
+
+students_no_infl <- students_clean[-influential_points, ]
+logit_noinfl <- glm(pass ~ sex + failures + absences + internet + activities + goout + studytime + Dalc + Walc, data = students_no_infl, family = binomial)
+
+summary(logit_noinfl)
+```
+
+```{r}
+# Compare models with full model and no influential points model 
+AIC(logit_mod, logit_noinfl)
+BIC(logit_mod, logit_noinfl)
+
+logit_mod$deviance
+logit_noinfl$deviance
+
+
+```
+
+
+Alcohol vs Subjects
+```{r}
+lm_subject_interaction <- lm(final_grade ~ subject * Dalc,
+                             data = students_clean)
+
+summary(lm_subject_interaction)
+```
+
+
+Absences vs Grade
+
+```{r}
+lm_absences <- lm(final_grade ~ absences + Dalc + sex + studytime, data = students_clean)
+summary(lm_absences)
+```
+
+
+
+
+Male Logistic Model
+```{r}
+logit_male <- glm(pass ~ failures + internet + studytime + activities+ goout + absences + Dalc + Walc, data = filter(students_clean, sex == "Male"), family = binomial)
+summary(logit_male)
+```
+
+
+Female Logistic Model
+```{r}
+logit_female <- glm(pass ~ failures + internet + activities + studytime + goout + absences + Dalc + Walc, data = filter(students_clean, sex == "Female"), family = binomial)
+summary(logit_female)
+```
+
+
+
+
+
